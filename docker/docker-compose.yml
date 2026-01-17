@@ -14,6 +14,15 @@ services:
       - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
       - SPRING_DATASOURCE_URL=jdbc:postgresql://polar-postgres:5432/polardb_catalog
       - SPRING_PROFILES_ACTIVE=testdata
+      - SPRING_CLOUD_CONFIG_URI=http://config-service:8888 # URL of the config server with DNS name as the service name
+
+  config-service:
+    image: config-service:latest
+    container_name: config-service
+    ports:
+      - "8888:8888"
+    environment:
+      - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
 
   polar-postgres:
     image: postgres:14.4
