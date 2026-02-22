@@ -7,10 +7,10 @@ services:
     container_name: catalog-service
     ports:
       - "8082:8082"
-      - "8083:8083" # remote debugging port
+      - "8001:8001" # remote debugging port
     environment:
       - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
-      - BPL_DEBUG_PORT=8083 # buildpack var to enable remote debugging on port 5005
+      - BPL_DEBUG_PORT=8001 # buildpack var to enable remote debugging on port 8001
       - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
       - SPRING_DATASOURCE_URL=jdbc:postgresql://polar-postgres:5432/polardb_catalog
       - SPRING_PROFILES_ACTIVE=testdata
@@ -21,8 +21,47 @@ services:
     container_name: config-service
     ports:
       - "8888:8888"
+      - "9888:9888" # remote debugging port
     environment:
       - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
+      - BPL_DEBUG_PORT=9888 # buildpack var to enable remote debugging on port 9888
+      - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
+        
+  order-service:      
+    depends_on:
+      - polar-postgres
+      - catalog-service
+      - polar-rabbitmq
+    image: order-service:latest
+    container_name: order-service
+    ports:
+      - "9002:9002"
+      - "8002:8002" # remote debugging port
+    environment:
+      - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
+      - BPL_DEBUG_PORT=8002 # buildpack var to enable remote debugging on port 8002
+      - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
+      - SPRING_FLYWAY_URL=jdbc:postgresql://polar-postgres:5432/polardb_order
+      - SPRING_CLOUD_CONFIG_URI=http://config-service:8888 # URL of the config server with DNS name as the service name
+      - SPRING_R2DBC_URL=r2dbc:postgresql://polar-postgres:5432/polardb_order
+      - POLAR_CATALOG_SERVICE_URI=http://catalog-service:8082 # URL of the catalog service with DNS name as the service name
+      - SPRING_RABBITMQ_HOST=polar-rabbitmq # DNS name of the RabbitMQ service
+      
+  dispatcher-service:    
+    depends_on:
+      - polar-rabbitmq
+    image: dispatcher-service:latest
+    container_name: dispatcher-service
+    ports:
+      - "9003:9003"
+      - "8003:8003" # remote debugging port
+    environment:
+      - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
+      - BPL_DEBUG_PORT=8003 # buildpack var to enable remote debugging on port 8003
+      - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
+      - SPRING_CLOUD_CONFIG_URI=http://config-service:8888 # URL of the config server with DNS name as the service name
+      - SPRING_RABBITMQ_HOST=polar-rabbitmq # DNS name of the RabbitMQ service
+        
 
   polar-postgres:
     image: postgres:14.4
@@ -34,3 +73,20 @@ services:
       - POSTGRES_PASSWORD=password
     volumes:
       - ./postgresql/init.sql:/docker-entrypoint-initdb.d/init.sql # initialize with a loading of init.sql script
+        
+  polar-redis:
+    image: redis:7.0.5
+    container_name: polar-redis
+    ports:
+      - "6379:63793"
+
+  # docker exec polar-rabbitmq rabbitmq-plugins enable rabbitmq_stream
+  polar-rabbitmq:      
+    image: rabbitmq:3.9.13-management
+    container_name: polar-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672" # management UI port
+      - "5552:5552" # stream port
+    volumes:
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf    

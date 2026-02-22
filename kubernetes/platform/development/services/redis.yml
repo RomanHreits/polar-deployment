@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: polar-redis
+  labels:
+    db: polar-redis
+spec:
+    selector:
+      matchLabels:
+        db: polar-redis
+    template:
+      metadata:
+        labels:
+          db: polar-redis
+      spec:
+        containers:
+          - name: polar-redis
+            image: redis:7.2.1
+            resources:
+              requests:
+                cpu: 100m # request 100m CPU (0.1 CPU) to ensure the container gets scheduled on a node with enough resources
+                memory: 50Mi # request 50Mi memory to ensure the container gets scheduled on a node with enough resources
+              limits:
+                cpu: 200m # limit CPU to 200m (0.2 CPU) to prevent the container from consuming too much CPU resources
+                memory: 100Mi # limit memory to 100Mi to prevent the container from consuming too much memory resources
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: polar-redis
+  labels:
+    db: polar-redis
+spec:
+  type: ClusterIP
+  selector:
+    db: polar-redis
+  ports:
+    - protocol: TCP
+      port: 6379
+      targetPort: 6379
