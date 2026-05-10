@@ -78,7 +78,7 @@ services:
     image: redis:7.0.5
     container_name: polar-redis
     ports:
-      - "6379:63793"
+      - "6379:6379"
 
   # docker exec polar-rabbitmq rabbitmq-plugins enable rabbitmq_stream
   polar-rabbitmq:      
@@ -89,4 +89,24 @@ services:
       - "15672:15672" # management UI port
       - "5552:5552" # stream port
     volumes:
-      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf    
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf   
+        
+  polar-keycloak:
+    image: quay.io/keycloak/keycloak:21.0.1
+    container_name: polar-keycloak
+    command: start-dev --import-realm # import the realm configuration from the JSON file in the mounted volume when the container starts
+    volumes:
+      - ./keycloak:/opt/keycloak/data/import # mount the local keycloak directory to the Keycloak container to import the realm configuration from the JSON file
+    ports:
+      - "8080:8080"
+    environment:
+      - KEYCLOAK_ADMIN=user
+      - KEYCLOAK_ADMIN_PASSWORD=password
+
+  polar-ui:
+    image: "ghcr.io/polarbookshop/polar-ui:v1"
+    container_name: polar-ui
+    ports:
+      - "9004:9004" # nginx will serve the SPA on port 9004
+    environment:
+      - PORT=9004  # configure the port for the nginx server to serve the SPA
