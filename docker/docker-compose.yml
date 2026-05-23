@@ -3,10 +3,12 @@ services:
   catalog-service:
     depends_on:
       - polar-postgres
+      - fluent-bit
+      - prometheus
     image: catalog-service:latest
     container_name: catalog-service
     ports:
-      - "8082:8082"
+      - "9001:9001"
       - "8001:8001" # remote debugging port
     environment:
       - BPL_JVM_THREAD_COUNT=50 # buildpack var to configure the number of threads in the JVM
@@ -15,6 +17,10 @@ services:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://polar-postgres:5432/polardb_catalog
       - SPRING_PROFILES_ACTIVE=testdata
       - SPRING_CLOUD_CONFIG_URI=http://config-service:8888 # URL of the config server with DNS name as the service name
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 172.20.10.13:24224 # address of the Fluent Bit container with DNS name as the service name
 
   config-service:
     image: config-service:latest
@@ -61,7 +67,36 @@ services:
       - BPL_DEBUG_ENABLED=true # buildpack var to enable remote debugging
       - SPRING_CLOUD_CONFIG_URI=http://config-service:8888 # URL of the config server with DNS name as the service name
       - SPRING_RABBITMQ_HOST=polar-rabbitmq # DNS name of the RabbitMQ service
-        
+
+  edge-service:
+    depends_on:
+      - fluent-bit
+      - polar-keycloak
+      - polar-redis
+      - polar-ui
+    image: "edge-service"
+    container_name: "edge-service"
+    ports:
+      - "9000:9000"
+      - "8000:8000"
+    environment:
+      # Buildpacks environment variable to enable debug through a socket on port 8000
+      - BPL_DEBUG_ENABLED=true
+      - BPL_DEBUG_PORT=8000
+      - JAVA_TOOL_OPTIONS=-javaagent:/workspace/BOOT-INF/lib/opentelemetry-javaagent-1.33.3.jar
+      - OTEL_SERVICE_NAME=edge-service
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_METRICS_EXPORTER=none
+      - CATALOG_SERVICE_URL=http://catalog-service:9001
+      - ORDER_SERVICE_URL=http://order-service:9002
+      - SPA_URL=http://polar-ui:9004
+      - SPRING_CLOUD_CONFIG_URI=http://config-service:8888
+      - SPRING_REDIS_HOST=polar-redis
+      - SPRING_SECURITY_OAUTH2_CLIENT_PROVIDER_KEYCLOAK_ISSUER_URI=http://host.docker.internal:8080/realms/PolarBookshop
+    logging:
+      driver: fluentd
+      options:
+        fluentd-address: 127.0.0.1:24224
 
   polar-postgres:
     image: postgres:14.4
@@ -110,3 +145,47 @@ services:
       - "9004:9004" # nginx will serve the SPA on port 9004
     environment:
       - PORT=9004  # configure the port for the nginx server to serve the SPA
+
+  grafana:
+    image: grafana/grafana-enterprise
+    container_name: grafana
+    depends_on:
+      - loki
+      - prometheus
+    ports:
+      - "3000:3000" # Grafana UI port
+    environment:
+        - GF_SECURITY_ADMIN_USER=user
+        - GF_SECURITY_ADMIN_PASSWORD=password
+    volumes:
+      - ./observability/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./observability/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      #- ./observability/grafana/dashboards:/var/lib/grafana/provisioning/dashboards # mount the dashboards directory to the Grafana container to load the dashboard JSON files into Grafana
+      #- ./observability/grafana/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml # mount the datasource.yaml file to the Grafana container to provision the Prometheus data source configuration
+      #- ./observability/grafana/grafana.ini:/etc/grafana/grafana.ini # mount the grafana.ini file to the Grafana container to configure Grafana settings such as enabling anonymous access
+
+  loki:
+    image: grafana/loki:main-2e3da9a
+    container_name: loki
+    depends_on:
+      - fluent-bit
+    ports:
+      - "3100:3100" # Loki API port
+
+  fluent-bit:
+    image: grafana/fluent-bit-plugin-loki:3.7
+    container_name: fluent-bit
+    ports:
+      - "24224:24224" # Fluent Bit forward input plugin port for receiving logs from the Fluent Bit forward output plugin
+    environment:
+      - LOKI_URL=http://loki:3100/loki/api/v1/push # URL of the Loki API for the Fluent Bit Loki output plugin to send logs to Loki with DNS name as the service name
+    volumes:
+      - ./observability/fluent-bit/fluent-bit.conf:/fluent-bit/etc/fluent-bit.conf # mount the Fluent Bit configuration file to the Fluent Bit container to configure Fluent Bit settings such as the input and output plugins and their configurations
+
+  prometheus:
+    image: prom/prometheus:v2.44.0
+    container_name: prometheus
+    ports:
+      - "9090:9090" # Prometheus UI and API port
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml # mount the Prometheus configuration file to the Prometheus container to configure Prometheus settings such as the scrape configs for scraping metrics from the application services and the Loki data source for scraping logs from Loki
